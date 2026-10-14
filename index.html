@@ -103,7 +103,7 @@ const TARGETS = [{"w":"生活","p":"shenghuo","l":1,"f":16,"m":"人们每天的�
 const KEY='campusQuestStudentsV3';
 const CLASS_ROSTERS={"1C1-1C4":["翰扬","陈蕾芯","胡证尭","黄雨心","乐乐","施乐颐","郑权溢","陈泽勇","林建宇","傅煊煊","李子恩","戴顺宝","陈慧欣","张宇威","卓颖骏","洪蕴煊","丁星彤","陈枫怡","张文诗","杨祐诚","林卡乐","慎如","俊煜","尽恩"],"1C5-1C8":["李栢曦","陈欣宜","江宇恒","凌嘉欣","吴俊伟","蔡家宁","梁嫙恩","陈国赈","巫以恩","庄錦璇","黄诗淇","梁彤語","马世昀","李奕萱","苏仁义"]};
 const $=id=>document.getElementById(id);
-let records=loadRecords(), activeId=null, stationNow=null, wordIndex=0, gameStarted=false, startedAt=0, elapsedAtSave=0, gameEnded=false, warningShown=false, teacherAuth='', teacherRecords=[], syncTimer=null;
+let records=loadRecords(), activeId=null, stationNow=null, wordIndex=0, submissionLocked=false, gameStarted=false, startedAt=0, elapsedAtSave=0, gameEnded=false, warningShown=false, teacherAuth='', teacherRecords=[], syncTimer=null;
 const canvas=$('world'),ctx=canvas.getContext('2d');
 const W=960,H=600;canvas.width=W;canvas.height=H;
 let titleTapCount=0,titleTapTimer=null;
@@ -137,9 +137,42 @@ function updateClock(){if(!gameStarted||gameEnded)return;const minute=getGameMin
 function finishGame(won){if(gameEnded)return;gameEnded=true;leavePresence();elapsedAtSave=getGameMinute()-450;$('timeWarning').classList.add('hidden');$('timeWarning').classList.remove('show');const r=records[activeId];r.outcome=won?'success':'stayback';r.updated=new Date().toISOString();saveRecords();$('endingIcon').textContent=won?'🎉':'🕒';$('playAgain').textContent='再玩一次 · Play again';$('endingEyebrow').textContent=won?'MISSION COMPLETE · 任务完成':'TIME IS UP · 时间到';$('endingTitle').textContent=won?'成功下课！ · You made it!':'要参加补习！ · Remedial required';$('endingText').textContent=won?'你在 2:30 前完成全部七关，成功下课！ / You finished all 7 stops before 2:30 pm.':'时间到了！你还没有完成七站，必须参加补习。 / Time is up! You did not finish all 7 stops and must attend remedial.';$('endingStats').textContent=`完成 ${Object.keys(r.stations).length} / 7 关 · 打对 ${r.correct||0} 词 / Stops · words typed`;$('ending').classList.remove('hidden');}
 function showChallenge(place){if(gameEnded||$('challenge').classList.contains('show'))return;stationNow=place;if(records[activeId].stations[place.id])return toast('这关已完成，去下一站！ / Stop complete. Go to the next one!');$('nearby').classList.add('hidden');wordIndex=0;renderQuestion();$('challenge').classList.remove('hidden');$('challenge').classList.add('show');$('wordInput').focus()}
 function currentWord(){return TARGETS.find(w=>w.w===stationNow.words[wordIndex])}
-function renderQuestion(){const item=currentWord();$('challengeStation').textContent=`${stationNow.icon} ${stationNow.label} · ${stationNow.en}`;$('questionIndex').textContent=`第 ${wordIndex+1} / ${stationNow.words.length} 题 · Question ${wordIndex+1} of ${stationNow.words.length}`;$('targetWord').textContent=item.w;$('wordInput').value='';$('feedback').textContent='';$('feedback').className='feedback';}
+function renderQuestion(){const item=currentWord();submissionLocked=false;$('submitWord').disabled=false;$('challengeStation').textContent=`${stationNow.icon} ${stationNow.label} · ${stationNow.en}`;$('questionIndex').textContent=`第 ${wordIndex+1} / ${stationNow.words.length} 题 · Question ${wordIndex+1} of ${stationNow.words.length}`;$('targetWord').textContent=item.w;$('wordInput').value='';$('feedback').textContent='';$('feedback').className='feedback';}
 function normalizeHanzi(s){return s.normalize('NFC').replace(/[\s　]/g,'').trim()}
-function checkWord(){if(!stationNow||gameEnded||!$('timeWarning').classList.contains('hidden'))return;const item=currentWord(),value=normalizeHanzi($('wordInput').value),r=records[activeId];r.attempts=(r.attempts||0)+1;r.words[item.w]=r.words[item.w]||{attempts:0,correct:0};r.words[item.w].attempts++;if(value===item.w){r.correct=(r.correct||0)+1;r.words[item.w].correct++;r.updated=new Date().toISOString();saveRecords();playCorrectSound();launchFireworks();$('feedback').textContent='打对了！太棒了！ Correct! Great job!';$('feedback').className='feedback good';setTimeout(()=>{if(wordIndex<stationNow.words.length-1){wordIndex++;renderQuestion();$('wordInput').focus()}else{const finishedPlace=stationNow;r.stations[finishedPlace.id]=true;r.updated=new Date().toISOString();saveRecords();closeChallenge();$('progress').textContent=`${Object.keys(r.stations).length} / 7 关 · stops`;$('progressBar').style.width=`${Object.keys(r.stations).length/7*100}%`;toast(`${finishedPlace.label}通关！ / ${finishedPlace.en} complete!`);if(Object.keys(r.stations).length===7){toast('七关完成！成功下课！ / All stops complete! You made it!');finishGame(true)} }},600)}else{$('feedback').textContent='不对，再试一次！请重新输入整个词语。 Not quite. Type the whole word again.';$('feedback').className='feedback bad';$('wordInput').value='';saveRecords();$('wordInput').focus()}}
+function checkWord(){
+ if(!stationNow||gameEnded||submissionLocked||!$('timeWarning').classList.contains('hidden'))return;
+ const item=currentWord(),value=normalizeHanzi($('wordInput').value),r=records[activeId];
+ r.attempts=(r.attempts||0)+1;
+ r.words[item.w]=r.words[item.w]||{attempts:0,correct:0};
+ r.words[item.w].attempts++;
+ if(value===item.w){
+  // Lock synchronously so repeat clicks or Enter presses cannot queue extra advances.
+  submissionLocked=true;
+  $('submitWord').disabled=true;
+  r.correct=(r.correct||0)+1;
+  r.words[item.w].correct++;
+  r.updated=new Date().toISOString();
+  saveRecords();playCorrectSound();launchFireworks();
+  $('feedback').textContent='打对了！太棒了！ Correct! Great job!';
+  $('feedback').className='feedback good';
+  setTimeout(()=>{
+   if(wordIndex<stationNow.words.length-1){
+    wordIndex++;renderQuestion();$('wordInput').focus();
+   }else{
+    const finishedPlace=stationNow;
+    r.stations[finishedPlace.id]=true;r.updated=new Date().toISOString();saveRecords();
+    closeChallenge();
+    $('progress').textContent=`${Object.keys(r.stations).length} / 7 关 · stops`;
+    $('progressBar').style.width=`${Object.keys(r.stations).length/7*100}%`;
+    toast(`${finishedPlace.label}通关！ / ${finishedPlace.en} complete!`);
+    if(Object.keys(r.stations).length===7){toast('七关完成！成功下课！ / All stops complete! You made it!');finishGame(true)}
+   }
+  },600);
+ }else{
+  $('feedback').textContent='不对，再试一次！请重新输入整个词语。 Not quite. Type the whole word again.';
+  $('feedback').className='feedback bad';$('wordInput').value='';saveRecords();$('wordInput').focus();
+ }
+}
 function playCorrectSound(){try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;const audio=new AC();[523.25,659.25,783.99].forEach((hz,i)=>{const osc=audio.createOscillator(),gain=audio.createGain();osc.type='sine';osc.frequency.value=hz;gain.gain.setValueAtTime(.0001,audio.currentTime+i*.09);gain.gain.exponentialRampToValueAtTime(.11,audio.currentTime+i*.09+.02);gain.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+i*.09+.18);osc.connect(gain);gain.connect(audio.destination);osc.start(audio.currentTime+i*.09);osc.stop(audio.currentTime+i*.09+.2)});setTimeout(()=>audio.close(),700)}catch{}}
 function launchFireworks(){const layer=$('celebration'),colors=[8,45,120,165,205,275,330];for(let i=0;i<28;i++){const p=document.createElement('i'),angle=Math.random()*Math.PI*2,distance=45+Math.random()*145;p.style.setProperty('--x',`${25+Math.random()*50}%`);p.style.setProperty('--y',`${20+Math.random()*55}%`);p.style.setProperty('--dx',`${Math.cos(angle)*distance}px`);p.style.setProperty('--dy',`${Math.sin(angle)*distance}px`);p.style.setProperty('--hue',colors[i%colors.length]);layer.appendChild(p);setTimeout(()=>p.remove(),1100)}}
 function closeChallenge(){if(stationNow&&activeId&&!records[activeId]?.stations?.[stationNow.id]){toast('请先打完本站10个词语，才能离开。 / Finish all 10 words here before leaving.');return}$('challenge').classList.add('hidden');$('challenge').classList.remove('show');stationNow=null;keys.clear();checkNearby()}
